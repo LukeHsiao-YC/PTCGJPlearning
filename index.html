@@ -27,8 +27,34 @@
     <script type="text/babel">
         const { useState, useRef, useEffect } = React;
 
-        // 已經把你的專屬金鑰寫進來囉
+        // 你的專屬金鑰
         const defaultApiKey = "AIzaSyCQV-S_JoGbiNHo-n2k-6yh0uWjmAsCM4k";
+
+        // 幫照片瘦身的小工具，加快 API 傳送速度
+        const compressImage = (dataUrl, maxWidth) => {
+            return new Promise((resolve) => {
+                const img = new Image();
+                img.onload = () => {
+                    const canvas = document.createElement('canvas');
+                    let width = img.width;
+                    let height = img.height;
+
+                    if (width > maxWidth) {
+                        height = Math.round((height * maxWidth) / width);
+                        width = maxWidth;
+                    }
+
+                    canvas.width = width;
+                    canvas.height = height;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0, width, height);
+                    
+                    // 壓縮成 70% 畫質的 JPEG，對 AI 辨識文字來說已經夠清楚了
+                    resolve(canvas.toDataURL('image/jpeg', 0.7)); 
+                };
+                img.src = dataUrl;
+            });
+        };
 
         function App() {
             const [userApiKey, setUserApiKey] = useState('');
@@ -49,12 +75,21 @@
                 setErrorMessage('');
 
                 const reader = new FileReader();
-                reader.onloadend = () => {
-                    const imageDataUrl = reader.result;
-                    setCapturedImage(imageDataUrl);
+                reader.onloadend = async () => {
+                    const originalDataUrl = reader.result;
                     
-                    const base64Data = imageDataUrl.split(',')[1];
-                    analyzeCard(base64Data);
+                    try {
+                        // 讀取完照片後，先把它縮小到最大寬度 800px，大幅減少檔案大小
+                        const compressedDataUrl = await compressImage(originalDataUrl, 800);
+                        setCapturedImage(compressedDataUrl);
+                        
+                        const base64Data = compressedDataUrl.split(',')[1];
+                        analyzeCard(base64Data);
+                    } catch (e) {
+                        console.error("圖片壓縮失敗", e);
+                        setErrorMessage("哎呀！處理照片時遇到一點問題，換一張試試看好嗎？");
+                        setAppState('error');
+                    }
                 };
                 
                 reader.onerror = () => {
@@ -68,15 +103,15 @@
 
             const analyzeCard = async (base64Image) => {
                 try {
-                    // 這裡特別修改了 Prompt，強制鎖定「招式」
+                    // 更新了指令，要求抓名字跟招式，還有把羅馬拼音分開
                     const prompt = `
-                        這是一張日文寶可夢卡牌的照片。你現在是一個充滿熱情、專門教小孩日文的老師。
-                        請從這張卡牌中，強制擷取 2 到 3 個「招式名稱」(Moves/Attacks) 來讓小孩學習。
-                        請忽略寶可夢的名字或一般的敘述文字，只專注在攻擊招式上。
-                        請回傳 JSON 格式的陣列。
+                        這是一張日文寶可夢卡牌。你是一個充滿熱情、專門教小孩日文的老師。
+                        請從這張卡牌中擷取以下內容來讓小孩學習，並以 JSON 格式的陣列回傳：
+                        1. 第一筆資料務必要抓取「寶可夢的名稱」。
+                        2. 接下來請抓取 1 到 2 個「招式名稱」(Moves/Attacks)。
+                        注意：為了讓初學者小孩能跟著唸，羅馬拼音 (romaji) 必須把每個假名的發音用「空格」切開，例如把 pikachu 寫成 pi ka chu。
                     `;
 
-                    // 資料結構新增 romaji 欄位
                     const payload = {
                         contents: [{
                             role: "user",
@@ -92,9 +127,9 @@
                                 items: {
                                     type: "OBJECT",
                                     properties: {
-                                        word: { type: "STRING", description: "卡牌上的招式名稱" },
+                                        word: { type: "STRING", description: "寶可夢名稱或招式名稱" },
                                         kana: { type: "STRING", description: "平假名讀音" },
-                                        romaji: { type: "STRING", description: "羅馬拼音，例如: pikachu" },
+                                        romaji: { type: "STRING", description: "羅馬拼音，每個字元發音請用空格分開，例如: pi ka chu" },
                                         meaning: { type: "STRING", description: "繁體中文意思" }
                                     },
                                     required: ["word", "kana", "romaji", "meaning"]
@@ -152,16 +187,14 @@
                 }
             };
 
-            // 呼叫瀏覽器內建語音念出日文
             const speakWord = (word) => {
                 if ('speechSynthesis' in window) {
-                    // 先停止正在播放的語音
                     window.speechSynthesis.cancel();
                     
                     const utterance = new SpeechSynthesisUtterance(word);
-                    utterance.lang = 'ja-JP'; // 設定為日文發音
-                    utterance.rate = 0.8;     // 語速調慢一點，適合教學
-                    utterance.pitch = 1.1;    // 音調稍微高一點點比較有活力
+                    utterance.lang = 'ja-JP'; 
+                    utterance.rate = 0.8;     
+                    utterance.pitch = 1.1;    
                     
                     window.speechSynthesis.speak(utterance);
                 } else {
@@ -253,7 +286,7 @@
                             <div className="flex flex-col items-center justify-center py-12">
                                 <div className="w-20 h-20 border-8 border-gray-200 border-t-red-500 rounded-full animate-spin mb-6"></div>
                                 <h2 className="text-xl font-bold text-gray-700 animate-pulse">小老師正在看卡牌...</h2>
-                                <p className="text-gray-500 mt-2">尋找帥氣的招式中！</p>
+                                <p className="text-gray-500 mt-2">尋找寶可夢跟帥氣的招式中！</p>
                             </div>
                         )}
 
@@ -281,13 +314,14 @@
                                             </button>
 
                                             <div className="absolute -top-3 -left-3 bg-yellow-400 text-yellow-900 w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm border-2 border-white">
-                                                {index + 1}
+                                                {index === 0 ? "名" : index}
                                             </div>
 
                                             <div className="text-center pt-2">
                                                 <p className="text-blue-500 font-medium mb-1 tracking-widest">{item.kana}</p>
                                                 <h3 className="text-3xl font-black text-gray-800 mb-1">{item.word}</h3>
-                                                <p className="text-gray-400 text-sm font-mono mb-3">{item.romaji}</p>
+                                                {/* 讓拼音字體稍微大一點點，間距也拉開一點，更好看清楚 */}
+                                                <p className="text-gray-500 text-base font-mono mb-3 tracking-widest">{item.romaji}</p>
                                                 <div className="inline-block bg-white px-4 py-1 rounded-full text-gray-600 font-bold border border-gray-200 shadow-sm">
                                                     {item.meaning}
                                                 </div>
