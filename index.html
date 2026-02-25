@@ -110,7 +110,10 @@
                     });
 
                     if (!response.ok) {
-                        throw new Error(`API 發生錯誤: ${response.status}`);
+                        // 這裡把詳細的錯誤抓出來
+                        const errorData = await response.json().catch(() => ({}));
+                        const errorMsg = errorData.error?.message || response.statusText || '未知問題';
+                        throw new Error(`連線錯誤 (${response.status}): ${errorMsg}`);
                     }
 
                     const data = await response.json();
@@ -121,12 +124,13 @@
                         setWords(parsedWords);
                         setAppState('result');
                     } else {
-                        throw new Error("找不到辨識結果");
+                        throw new Error("AI 有回覆，但是找不到辨識的單字。");
                     }
 
                 } catch (err) {
                     console.error("分析失敗:", err);
-                    setErrorMessage("糟糕！小老師看不太懂這張照片，可以換一張清楚一點的試試看嗎？");
+                    // 把真實的錯誤訊息顯示在畫面上，方便除錯
+                    setErrorMessage(`系統說：${err.message}`);
                     setAppState('error');
                 }
             };
@@ -222,7 +226,7 @@
                         {appState === 'error' && (
                             <div className="text-center py-8">
                                 <div className="text-5xl mb-4">😢</div>
-                                <p className="text-lg font-bold text-gray-700 mb-6">{errorMessage}</p>
+                                <p className="text-lg font-bold text-gray-700 mb-6 text-left break-words">{errorMessage}</p>
                                 <button 
                                     onClick={resetApp}
                                     className="bg-yellow-400 hover:bg-yellow-500 text-yellow-900 font-bold py-3 px-8 rounded-full shadow-sm"
