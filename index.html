@@ -4,17 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>寶可夢卡牌小老師</title>
-    <!-- 引入 Tailwind CSS 讓畫面排版更方便美觀 -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- 引入 React 和 ReactDOM -->
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-    <!-- 引入 Babel 來編譯 JSX -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    <!-- 引入 Lucide Icons 作為按鈕圖示 -->
     <script src="https://unpkg.com/lucide@latest"></script>
     <style>
-        /* 替網頁加點可愛的背景跟字體設定 */
         body {
             font-family: 'Nunito', 'Noto Sans TC', sans-serif;
             background-color: #f0f9ff;
@@ -32,86 +27,48 @@
     <script type="text/babel">
         const { useState, useRef, useEffect } = React;
 
-        // Gemini API 金鑰 (環境會自動帶入)
         const apiKey = "";
 
         function App() {
-            // 應用程式的狀態管理：camera (相機模式), analyzing (分析中), result (顯示結果), error (錯誤)
-            const [appState, setAppState] = useState('camera');
+            // 狀態管理：idle (等待上傳), analyzing (分析中), result (顯示結果), error (錯誤)
+            const [appState, setAppState] = useState('idle');
             const [words, setWords] = useState([]);
             const [capturedImage, setCapturedImage] = useState(null);
             const [errorMessage, setErrorMessage] = useState('');
             
-            const videoRef = useRef(null);
-            const canvasRef = useRef(null);
-            const streamRef = useRef(null);
+            const fileInputRef = useRef(null);
 
-            // 啟動相機
-            const startCamera = async () => {
-                try {
-                    setAppState('camera');
-                    setErrorMessage('');
-                    // 優先使用後置鏡頭，並要求較高的解析度來幫助對焦
-                    const stream = await navigator.mediaDevices.getUserMedia({ 
-                        video: { 
-                            facingMode: 'environment',
-                            width: { ideal: 1920 },
-                            height: { ideal: 1080 }
-                        } 
-                    });
-                    if (videoRef.current) {
-                        videoRef.current.srcObject = stream;
-                    }
-                    streamRef.current = stream;
-                } catch (err) {
-                    console.error("相機啟動失敗:", err);
-                    setErrorMessage("哎呀！沒辦法開啟相機，請檢查瀏覽器的權限設定喔。");
-                    setAppState('error');
-                }
-            };
+            // 處理檔案上傳
+            const handleImageUpload = (event) => {
+                const file = event.target.files[0];
+                if (!file) return;
 
-            // 關閉相機 (釋放資源)
-            const stopCamera = () => {
-                if (streamRef.current) {
-                    streamRef.current.getTracks().forEach(track => track.stop());
-                }
-            };
-
-            // 元件載入時啟動相機，卸載時關閉相機
-            useEffect(() => {
-                startCamera();
-                return () => stopCamera();
-            }, []);
-
-            // 拍照並傳送給 AI 分析
-            const takePhoto = async () => {
-                if (!videoRef.current || !canvasRef.current) return;
-
-                const video = videoRef.current;
-                const canvas = canvasRef.current;
-                
-                // 設定畫布大小與影片來源一致
-                canvas.width = video.videoWidth;
-                canvas.height = video.videoHeight;
-                
-                // 將影片目前的畫面畫到畫布上
-                const ctx = canvas.getContext('2d');
-                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-                
-                // 取得 base64 格式的圖片資料 (JPEG格式)
-                const imageDataUrl = canvas.toDataURL('image/jpeg', 0.8);
-                setCapturedImage(imageDataUrl);
-                
-                // 停止相機並進入分析狀態
-                stopCamera();
+                // 進入載入狀態
                 setAppState('analyzing');
+                setErrorMessage('');
 
-                // 移除 "data:image/jpeg;base64," 前綴，只保留純 base64 內容給 API
-                const base64Data = imageDataUrl.split(',')[1];
-                analyzeCard(base64Data);
+                const reader = new FileReader();
+                reader.onloadend = () => {
+                    const imageDataUrl = reader.result;
+                    setCapturedImage(imageDataUrl);
+                    
+                    // 移除 base64 前綴
+                    const base64Data = imageDataUrl.split(',')[1];
+                    analyzeCard(base64Data);
+                };
+                
+                // 萬一讀取失敗
+                reader.onerror = () => {
+                    setErrorMessage("哎呀！照片讀取失敗了，我們換一張試試看好嗎？");
+                    setAppState('error');
+                };
+
+                reader.readAsDataURL(file);
+                
+                // 清空 input，確保下次選同一張照片也能觸發 onChange
+                event.target.value = '';
             };
 
-            // 呼叫 Gemini API 分析卡牌
             const analyzeCard = async (base64Image) => {
                 try {
                     const prompt = `
@@ -121,7 +78,6 @@
                         請回傳 JSON 格式的陣列。
                     `;
 
-                    // API 請求的 Payload，要求回傳嚴格的 JSON 格式
                     const payload = {
                         contents: [{
                             role: "user",
@@ -137,9 +93,9 @@
                                 items: {
                                     type: "OBJECT",
                                     properties: {
-                                        word: { type: "STRING", description: "卡牌上的日文單字 (漢字或片假名/平假名)" },
-                                        kana: { type: "STRING", description: "這個單字的平假名讀音 (讓小孩知道怎麼唸)" },
-                                        meaning: { type: "STRING", description: "繁體中文的翻譯或意思" }
+                                        word: { type: "STRING", description: "卡牌上的日文單字" },
+                                        kana: { type: "STRING", description: "平假名讀音" },
+                                        meaning: { type: "STRING", description: "繁體中文意思" }
                                     },
                                     required: ["word", "kana", "meaning"]
                                 }
@@ -159,7 +115,6 @@
 
                     const data = await response.json();
                     
-                    // 解析 AI 回傳的 JSON 文字
                     const resultText = data.candidates?.[0]?.content?.parts?.[0]?.text;
                     if (resultText) {
                         const parsedWords = JSON.parse(resultText);
@@ -171,16 +126,15 @@
 
                 } catch (err) {
                     console.error("分析失敗:", err);
-                    setErrorMessage("哎呀！剛剛照片有點模糊，小老師沒有看清楚卡牌上的字，可以拿遠一點點再試一次嗎？");
+                    setErrorMessage("糟糕！小老師看不太懂這張照片，可以換一張清楚一點的試試看嗎？");
                     setAppState('error');
                 }
             };
 
-            // 重新開始
             const resetApp = () => {
                 setWords([]);
                 setCapturedImage(null);
-                startCamera();
+                setAppState('idle');
             };
 
             return (
@@ -188,41 +142,41 @@
                     
                     <div className="max-w-md w-full bg-white rounded-3xl p-6 poke-shadow border-4 border-yellow-400 relative overflow-hidden">
                         
-                        {/* 頂部裝飾標題 */}
                         <div className="text-center mb-6">
                             <h1 className="text-2xl font-black text-blue-600 tracking-wider">
-                                🔍 寶可夢掃描機
+                                寶可夢掃描機
                             </h1>
-                            <p className="text-red-500 font-bold text-sm mt-1">小秘訣：如果太近會模糊，請拿遠一點點喔！</p>
+                            <p className="text-gray-500 text-sm mt-1">上傳清楚的照片讓小老師看看吧</p>
                         </div>
 
-                        {/* 相機模式 */}
-                        <div className={appState === 'camera' ? 'block' : 'hidden'}>
-                            <div className="relative rounded-2xl overflow-hidden border-4 border-blue-200 bg-gray-100 aspect-[3/4] flex items-center justify-center">
-                                <video 
-                                    ref={videoRef} 
-                                    autoPlay 
-                                    playsInline 
-                                    muted 
-                                    className="absolute inset-0 w-full h-full object-cover"
-                                ></video>
-                                {/* 隱藏的畫布用來截圖 */}
-                                <canvas ref={canvasRef} className="hidden"></canvas>
-                                
-                                {/* 輔助對齊的框線 */}
-                                <div className="absolute inset-4 border-2 border-dashed border-white/70 rounded-xl pointer-events-none"></div>
+                        {/* 等待上傳模式 */}
+                        {appState === 'idle' && (
+                            <div className="flex flex-col items-center justify-center py-8">
+                                <div className="w-40 h-40 bg-blue-50 rounded-full flex items-center justify-center mb-8 border-4 border-dashed border-blue-200">
+                                    <i data-lucide="image-plus" className="w-16 h-16 text-blue-300"></i>
+                                </div>
+
+                                {/* 隱藏的檔案輸入框 */}
+                                <input 
+                                    type="file" 
+                                    accept="image/*" 
+                                    capture="environment"
+                                    className="hidden" 
+                                    ref={fileInputRef}
+                                    onChange={handleImageUpload}
+                                />
+
+                                <button 
+                                    onClick={() => fileInputRef.current?.click()}
+                                    className="w-full bg-red-500 hover:bg-red-600 active:bg-red-700 text-white font-bold py-4 rounded-full text-xl transition-transform active:scale-95 shadow-lg flex items-center justify-center gap-2"
+                                >
+                                    <i data-lucide="camera" className="w-6 h-6"></i>
+                                    拍照或選照片
+                                </button>
                             </div>
+                        )}
 
-                            <button 
-                                onClick={takePhoto}
-                                className="mt-8 w-full bg-red-500 hover:bg-red-600 active:bg-red-700 text-white font-bold py-4 rounded-full text-xl transition-transform active:scale-95 shadow-lg flex items-center justify-center gap-2"
-                            >
-                                <i data-lucide="camera" className="w-6 h-6"></i>
-                                喀嚓！掃描卡牌
-                            </button>
-                        </div>
-
-                        {/* 載入/分析中狀態 */}
+                        {/* 載入分析中狀態 */}
                         {appState === 'analyzing' && (
                             <div className="flex flex-col items-center justify-center py-12">
                                 <div className="w-20 h-20 border-8 border-gray-200 border-t-red-500 rounded-full animate-spin mb-6"></div>
@@ -245,11 +199,8 @@
                                                 {index + 1}
                                             </div>
                                             <div className="text-center">
-                                                {/* 注音/平假名 */}
                                                 <p className="text-blue-500 font-medium mb-1 tracking-widest">{item.kana}</p>
-                                                {/* 日文單字 */}
                                                 <h3 className="text-3xl font-black text-gray-800 mb-2">{item.word}</h3>
-                                                {/* 中文意思 */}
                                                 <div className="inline-block bg-white px-4 py-1 rounded-full text-gray-600 font-bold border border-gray-200 shadow-sm">
                                                     {item.meaning}
                                                 </div>
