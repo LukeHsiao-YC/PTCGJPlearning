@@ -51,9 +51,13 @@
                 try {
                     setAppState('camera');
                     setErrorMessage('');
-                    // 優先使用後置鏡頭 (environment)
+                    // 優先使用後置鏡頭，並要求較高的解析度來幫助對焦
                     const stream = await navigator.mediaDevices.getUserMedia({ 
-                        video: { facingMode: 'environment' } 
+                        video: { 
+                            facingMode: 'environment',
+                            width: { ideal: 1920 },
+                            height: { ideal: 1080 }
+                        } 
                     });
                     if (videoRef.current) {
                         videoRef.current.srcObject = stream;
@@ -167,7 +171,7 @@
 
                 } catch (err) {
                     console.error("分析失敗:", err);
-                    setErrorMessage("哎呀！小老師剛剛打瞌睡了，沒有看清楚卡牌，我們再試一次好嗎？");
+                    setErrorMessage("哎呀！剛剛照片有點模糊，小老師沒有看清楚卡牌上的字，可以拿遠一點點再試一次嗎？");
                     setAppState('error');
                 }
             };
@@ -189,7 +193,7 @@
                             <h1 className="text-2xl font-black text-blue-600 tracking-wider">
                                 🔍 寶可夢掃描機
                             </h1>
-                            <p className="text-gray-500 text-sm mt-1">把卡牌放在框框裡拍照吧！</p>
+                            <p className="text-red-500 font-bold text-sm mt-1">小秘訣：如果太近會模糊，請拿遠一點點喔！</p>
                         </div>
 
                         {/* 相機模式 */}
