@@ -27,16 +27,12 @@
     <script type="text/babel">
         const { useState, useRef, useEffect } = React;
 
-        // 這裡保持空白就好，我們改成在畫面上輸入，比較安全
         const defaultApiKey = "";
 
         function App() {
-            // 新增一個狀態來管理使用者輸入的金鑰
             const [userApiKey, setUserApiKey] = useState('');
-            // 如果原本沒有金鑰，就進入設定模式
             const [isConfiguring, setIsConfiguring] = useState(!defaultApiKey);
 
-            // 狀態管理：idle (等待上傳), analyzing (分析中), result (顯示結果), error (錯誤)
             const [appState, setAppState] = useState('idle');
             const [words, setWords] = useState([]);
             const [capturedImage, setCapturedImage] = useState(null);
@@ -44,7 +40,6 @@
             
             const fileInputRef = useRef(null);
 
-            // 處理檔案上傳
             const handleImageUpload = (event) => {
                 const file = event.target.files[0];
                 if (!file) return;
@@ -72,13 +67,15 @@
 
             const analyzeCard = async (base64Image) => {
                 try {
+                    // 這裡特別修改了 Prompt，強制鎖定「招式」
                     const prompt = `
                         這是一張日文寶可夢卡牌的照片。你現在是一個充滿熱情、專門教小孩日文的老師。
-                        請從這張卡牌中，挑選出 2 到 3 個最適合初學者小孩學習的日文單字。
-                        優先挑選「寶可夢的名字」或是「簡單的招式名稱」。
+                        請從這張卡牌中，強制擷取 2 到 3 個「招式名稱」(Moves/Attacks) 來讓小孩學習。
+                        請忽略寶可夢的名字或一般的敘述文字，只專注在攻擊招式上。
                         請回傳 JSON 格式的陣列。
                     `;
 
+                    // 資料結構新增 romaji 欄位
                     const payload = {
                         contents: [{
                             role: "user",
@@ -94,20 +91,19 @@
                                 items: {
                                     type: "OBJECT",
                                     properties: {
-                                        word: { type: "STRING", description: "卡牌上的日文單字" },
+                                        word: { type: "STRING", description: "卡牌上的招式名稱" },
                                         kana: { type: "STRING", description: "平假名讀音" },
+                                        romaji: { type: "STRING", description: "羅馬拼音，例如: pikachu" },
                                         meaning: { type: "STRING", description: "繁體中文意思" }
                                     },
-                                    required: ["word", "kana", "meaning"]
+                                    required: ["word", "kana", "romaji", "meaning"]
                                 }
                             }
                         }
                     };
 
-                    // 使用畫面輸入的 API Key
                     const activeApiKey = defaultApiKey || userApiKey;
 
-                    // 這裡把模型名稱換成正式對外開放的 gemini-2.5-flash
                     const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${activeApiKey}`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
@@ -117,7 +113,6 @@
                     if (!response.ok) {
                         const errorData = await response.json().catch(() => ({}));
                         const errorMsg = errorData.error?.message || response.statusText || '未知問題';
-                        // 如果錯誤是 400 或 403，通常代表金鑰無效
                         if (response.status === 400 || response.status === 403) {
                             throw new Error("金鑰好像有點問題，請檢查是不是複製錯了喔！");
                         }
@@ -156,7 +151,23 @@
                 }
             };
 
-            // 如果還沒設定金鑰，顯示設定畫面
+            // 呼叫瀏覽器內建語音念出日文
+            const speakWord = (word) => {
+                if ('speechSynthesis' in window) {
+                    // 先停止正在播放的語音
+                    window.speechSynthesis.cancel();
+                    
+                    const utterance = new SpeechSynthesisUtterance(word);
+                    utterance.lang = 'ja-JP'; // 設定為日文發音
+                    utterance.rate = 0.8;     // 語速調慢一點，適合教學
+                    utterance.pitch = 1.1;    // 音調稍微高一點點比較有活力
+                    
+                    window.speechSynthesis.speak(utterance);
+                } else {
+                    alert("哎呀！你的瀏覽器好像不支援發音功能喔。");
+                }
+            };
+
             if (isConfiguring) {
                 return (
                     <div className="min-h-screen flex flex-col items-center justify-center p-4">
@@ -212,14 +223,12 @@
                             <p className="text-gray-500 text-sm mt-1">上傳清楚的照片讓小老師看看吧</p>
                         </div>
 
-                        {/* 等待上傳模式 */}
                         {appState === 'idle' && (
                             <div className="flex flex-col items-center justify-center py-8">
                                 <div className="w-40 h-40 bg-blue-50 rounded-full flex items-center justify-center mb-8 border-4 border-dashed border-blue-200">
                                     <i data-lucide="image-plus" className="w-16 h-16 text-blue-300"></i>
                                 </div>
 
-                                {/* 隱藏的檔案輸入框 */}
                                 <input 
                                     type="file" 
                                     accept="image/*" 
@@ -239,16 +248,14 @@
                             </div>
                         )}
 
-                        {/* 載入分析中狀態 */}
                         {appState === 'analyzing' && (
                             <div className="flex flex-col items-center justify-center py-12">
                                 <div className="w-20 h-20 border-8 border-gray-200 border-t-red-500 rounded-full animate-spin mb-6"></div>
                                 <h2 className="text-xl font-bold text-gray-700 animate-pulse">小老師正在看卡牌...</h2>
-                                <p className="text-gray-500 mt-2">找找看有沒有好玩的單字！</p>
+                                <p className="text-gray-500 mt-2">尋找帥氣的招式中！</p>
                             </div>
                         )}
 
-                        {/* 結果顯示狀態 */}
                         {appState === 'result' && (
                             <div className="animate-fade-in flex flex-col items-center">
                                 <div className="w-32 h-32 rounded-xl overflow-hidden mb-6 border-4 border-yellow-300 shadow-md">
@@ -257,13 +264,29 @@
                                 
                                 <div className="w-full space-y-4">
                                     {words.map((item, index) => (
-                                        <div key={index} className="bg-blue-50 rounded-2xl p-4 border-2 border-blue-100 relative">
+                                        <div key={index} className="bg-blue-50 rounded-2xl p-4 border-2 border-blue-100 relative group hover:bg-blue-100 transition-colors">
+                                            
+                                            {/* 發音按鈕 */}
+                                            <button 
+                                                onClick={() => speakWord(item.word)}
+                                                className="absolute -top-3 -right-3 bg-red-500 text-white w-10 h-10 rounded-full flex items-center justify-center shadow-md border-2 border-white hover:bg-red-600 active:scale-90 transition-transform cursor-pointer"
+                                                title="聽發音"
+                                            >
+                                                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                                    <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+                                                    <path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+                                                    <path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path>
+                                                </svg>
+                                            </button>
+
                                             <div className="absolute -top-3 -left-3 bg-yellow-400 text-yellow-900 w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm border-2 border-white">
                                                 {index + 1}
                                             </div>
-                                            <div className="text-center">
+
+                                            <div className="text-center pt-2">
                                                 <p className="text-blue-500 font-medium mb-1 tracking-widest">{item.kana}</p>
-                                                <h3 className="text-3xl font-black text-gray-800 mb-2">{item.word}</h3>
+                                                <h3 className="text-3xl font-black text-gray-800 mb-1">{item.word}</h3>
+                                                <p className="text-gray-400 text-sm font-mono mb-3">{item.romaji}</p>
                                                 <div className="inline-block bg-white px-4 py-1 rounded-full text-gray-600 font-bold border border-gray-200 shadow-sm">
                                                     {item.meaning}
                                                 </div>
@@ -281,7 +304,6 @@
                             </div>
                         )}
 
-                        {/* 錯誤狀態 */}
                         {appState === 'error' && (
                             <div className="text-center py-8">
                                 <div className="text-5xl mb-4">😢</div>
@@ -303,7 +325,6 @@
         const root = ReactDOM.createRoot(document.getElementById('root'));
         root.render(<App />);
 
-        // 初始化圖示
         lucide.createIcons();
     </script>
 </body>
