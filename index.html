@@ -27,9 +27,15 @@
     <script type="text/babel">
         const { useState, useRef, useEffect } = React;
 
-        const apiKey = "";
+        // 這裡保持空白就好，我們改成在畫面上輸入，比較安全
+        const defaultApiKey = "";
 
         function App() {
+            // 新增一個狀態來管理使用者輸入的金鑰
+            const [userApiKey, setUserApiKey] = useState('');
+            // 如果原本沒有金鑰，就進入設定模式
+            const [isConfiguring, setIsConfiguring] = useState(!defaultApiKey);
+
             // 狀態管理：idle (等待上傳), analyzing (分析中), result (顯示結果), error (錯誤)
             const [appState, setAppState] = useState('idle');
             const [words, setWords] = useState([]);
@@ -43,7 +49,6 @@
                 const file = event.target.files[0];
                 if (!file) return;
 
-                // 進入載入狀態
                 setAppState('analyzing');
                 setErrorMessage('');
 
@@ -52,20 +57,16 @@
                     const imageDataUrl = reader.result;
                     setCapturedImage(imageDataUrl);
                     
-                    // 移除 base64 前綴
                     const base64Data = imageDataUrl.split(',')[1];
                     analyzeCard(base64Data);
                 };
                 
-                // 萬一讀取失敗
                 reader.onerror = () => {
                     setErrorMessage("哎呀！照片讀取失敗了，我們換一張試試看好嗎？");
                     setAppState('error');
                 };
 
                 reader.readAsDataURL(file);
-                
-                // 清空 input，確保下次選同一張照片也能觸發 onChange
                 event.target.value = '';
             };
 
@@ -103,16 +104,22 @@
                         }
                     };
 
-                    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
+                    // 使用畫面輸入的 API Key
+                    const activeApiKey = defaultApiKey || userApiKey;
+
+                    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${activeApiKey}`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify(payload)
                     });
 
                     if (!response.ok) {
-                        // 這裡把詳細的錯誤抓出來
                         const errorData = await response.json().catch(() => ({}));
                         const errorMsg = errorData.error?.message || response.statusText || '未知問題';
+                        // 如果錯誤是 400 或 403，通常代表金鑰無效
+                        if (response.status === 400 || response.status === 403) {
+                            throw new Error("金鑰好像有點問題，請檢查是不是複製錯了喔！");
+                        }
                         throw new Error(`連線錯誤 (${response.status}): ${errorMsg}`);
                     }
 
@@ -129,7 +136,6 @@
 
                 } catch (err) {
                     console.error("分析失敗:", err);
-                    // 把真實的錯誤訊息顯示在畫面上，方便除錯
                     setErrorMessage(`系統說：${err.message}`);
                     setAppState('error');
                 }
@@ -140,6 +146,58 @@
                 setCapturedImage(null);
                 setAppState('idle');
             };
+
+            const saveConfig = () => {
+                if (userApiKey.trim() !== '') {
+                    setIsConfiguring(false);
+                } else {
+                    alert('請先輸入金鑰才能開始喔！');
+                }
+            };
+
+            // 如果還沒設定金鑰，顯示設定畫面
+            if (isConfiguring) {
+                return (
+                    <div className="min-h-screen flex flex-col items-center justify-center p-4">
+                        <div className="max-w-md w-full bg-white rounded-3xl p-8 poke-shadow border-4 border-yellow-400 relative overflow-hidden">
+                            <div className="text-center mb-6">
+                                <h1 className="text-2xl font-black text-blue-600 tracking-wider mb-2">
+                                    🔑 啟動小老師
+                                </h1>
+                                <p className="text-gray-600 text-sm">
+                                    為了讓 AI 小老師看懂卡牌，請先輸入你的 Gemini API 金鑰。
+                                </p>
+                            </div>
+
+                            <input 
+                                type="password" 
+                                placeholder="請貼上你的 API 金鑰..." 
+                                className="w-full border-2 border-gray-300 rounded-xl p-4 mb-6 focus:border-blue-500 focus:outline-none font-mono text-sm"
+                                value={userApiKey}
+                                onChange={(e) => setUserApiKey(e.target.value)}
+                            />
+
+                            <button 
+                                onClick={saveConfig}
+                                className="w-full bg-blue-500 hover:bg-blue-600 active:bg-blue-700 text-white font-bold py-4 rounded-full text-lg transition-transform active:scale-95 shadow-md mb-4"
+                            >
+                                儲存並開始掃描
+                            </button>
+
+                            <div className="text-center mt-6">
+                                <a 
+                                    href="https://aistudio.google.com/app/apikey" 
+                                    target="_blank" 
+                                    rel="noreferrer"
+                                    className="text-sm text-blue-500 hover:text-blue-700 underline font-bold"
+                                >
+                                    不知道去哪裡申請？點我免費取得金鑰
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                );
+            }
 
             return (
                 <div className="min-h-screen flex flex-col items-center justify-center p-4">
